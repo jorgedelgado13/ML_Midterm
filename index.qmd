@@ -1,9 +1,16 @@
 ---
-title: "EDA + Regresión (LinearRegression)"
-author: "Jorge Delgado"
-date: "2025-10-4"
-format: html
+title: "PRIMER REPORTE EN QUARTO"
+author: "Jorge Delgado" 
+date: "2025-10-04"
+# format:
+#   html:
+#     embed-resources: true
 ---
+
+# Introduccion a Altair
+
+
+## Importar el dataset
 
 # Carga y exploración inicial
 
