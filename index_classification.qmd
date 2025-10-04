@@ -16,16 +16,33 @@ import pandas as pd
 
 path = "data/ensanut_f1_informacion_general.csv"
 
-df = pd.read_csv(
-    path,
-    sep=None,                # autodetecta delimitador
-    engine="python",         # necesario para sep=None
-    encoding="latin1",       # o "utf-8"/"cp1252" si aplica
-    on_bad_lines="skip",     # si hay filas mal formadas, sáltalas
-    skipinitialspace=True    # ignora espacios después del separador
-)
+def load_csv_robust(path):
+    tries = [
+        dict(sep=None, engine="python", encoding="latin1"),          # autodetecta
+        dict(sep=";", encoding="latin1", quotechar='"', escapechar="\\"),
+        dict(sep=",", encoding="latin1", quotechar='"', escapechar="\\"),
+        dict(sep="\t", encoding="latin1"),
+    ]
+    last = None
+    for kw in tries:
+        try:
+            df = pd.read_csv(
+                path,
+                on_bad_lines="skip",       # salta filas mal formadas
+                skipinitialspace=True,     # ignora espacios tras el separador
+                **kw
+            )
+            # Heurística simple: al menos 2 columnas válidas
+            if df.shape[1] >= 2:
+                return df, kw
+        except Exception as e:
+            last = e
+    raise last
 
+df, used_kwargs = load_csv_robust(path)
+print("Opciones usadas:", used_kwargs)
 df.head()
+
 
 ```
 
