@@ -17,12 +17,15 @@ import pandas as pd
 df = pd.read_csv(
     "data/ensanut_f1_informacion_general.csv",
     sep=";",
-    encoding="latin1",
+    encoding="utf-8-sig",
     quotechar='"',
     escapechar="\\",
     on_bad_lines="skip",
-    skipinitialspace=True
+    skipinitialspace=True,
+    low_memory=False
 )
+df = df.rename(columns=lambda c: c.replace("\ufeff", ""))
+
 df.head()
 ```
 
@@ -38,17 +41,17 @@ df.isna().mean().sort_values(ascending=False).head(15)
 ## 2) Selección de variable objetivo (binaria) y EDA breve
 
 > Puedes fijar manualmente la columna objetivo asignando `TARGET = "nombre_columna"`.
-> Si lo dejas vacío, el notebook intentará **detectar** la primera columna categórica binaria.
+> Si lo dejas vacío, se detectará automáticamente la primera columna con exactamente 2 clases.
 
 ```{python}
 import numpy as np
+import matplotlib.pyplot as plt
 
-TARGET = ""  # <- opcional: pon aquí tu columna binaria (str). Si la dejas en "", se detecta automáticamente.
+TARGET = ""  # por ejemplo: "area"
 
 # Detectar objetivo binario si no se especifica
 target_col = TARGET.strip() if isinstance(TARGET, str) and TARGET.strip() else None
 if target_col is None:
-    # candidata: columna con exactamente 2 valores distintos (ignorando NaN)
     for c in df.columns:
         nun = df[c].dropna().nunique()
         if nun == 2:
@@ -58,76 +61,88 @@ if target_col is None:
 if target_col is None:
     raise ValueError("No se detectó una columna binaria automáticamente. Define TARGET con el nombre de tu variable objetivo.")
 
-# Asegurar que el objetivo sea categórico (0/1 o etiquetas)
-y_raw = df[target_col]
+y = df[target_col].astype(str).str.strip()
+X = df.drop(columns=[target_col])
 
-# Mostrar distribución de clases
-y_raw.value_counts(dropna=False)
-```
+# Distribución de clases
+vc = y.value_counts(dropna=False)
+display(vc)
 
-```{python}
-import matplotlib.pyplot as plt
-
-vc = y_raw.value_counts()
 plt.figure()
 vc.plot(kind="bar")
 plt.title(f"Distribución de clases - {target_col}")
-plt.xlabel("Clase")
-plt.ylabel("Frecuencia")
-plt.tight_layout()
-plt.show()
+plt.xlabel("Clase"); plt.ylabel("Frecuencia")
+plt.tight_layout(); plt.show()
 ```
 
-## 3) División Train/Test y preparación de datos
+## 3) Normalización de tipos y selección de features
 
 ```{python}
-from sklearn.model_selection import train_test_split
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.impute import SimpleImputer
+import pandas as pd
 
-# Separar X e y
-X = df.drop(columns=[target_col])
-y = y_raw
+def to_numeric_if_mostly_numeric(series, threshold=0.9):
+    s = series.astype(str)
+    # normaliza: quita separador de miles y usa punto decimal
+    s_norm = (
+        s.str.replace(r"(?<=\d)[\.\s](?=\d{3}\b)", "", regex=True)  # quita . o espacio de miles
+         .str.replace(",", ".", regex=False)                             # coma -> punto decimal
+    )
+    s_num = pd.to_numeric(s_norm, errors="coerce")
+    if s_num.notna().mean() >= threshold:
+        return s_num
+    return series
 
-# Detectar tipos
+# Aplica a columnas 'object' y luego recalcula numéricas/categóricas
+for c in X.columns:
+    if X[c].dtype == object:
+        X[c] = to_numeric_if_mostly_numeric(X[c], threshold=0.9)
+
 num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
 cat_cols = [c for c in X.columns if c not in num_cols]
 
-len(num_cols), len(cat_cols)
+# Seguridad adicional: fuerza categóricas a string
+X[cat_cols] = X[cat_cols].astype(str)
+
+print("Numéricas:", len(num_cols), " | Categóricas:", len(cat_cols))
 ```
 
+## 4) División Train/Test y Pipeline (imputación, escalado, one-hot) + Modelo
+
 ```{python}
-# División estratificada para mantener la proporción de clases
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+
+# División estratificada
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-# Transformaciones: imputación + escalado para numéricas; imputación + OneHot para categóricas
+# Numéricas: imputación + escalado
 num_transformer = Pipeline(steps=[
     ("imputer", SimpleImputer(strategy="median")),
     ("scaler", StandardScaler())
 ])
 
-# Para scikit-learn >= 1.2: usar sparse_output=False
+# Categóricas: imputación + one-hot (ya forzamos str en X[cat_cols])
 cat_transformer = Pipeline(steps=[
     ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False, max_categories=50))
+    ("onehot", OneHotEncoder(handle_unknown="ignore",
+                             sparse_output=False,
+                             max_categories=50))
 ])
 
-preprocessor = ColumnTransformer(transformers=[
-    ("num", num_transformer, num_cols),
-    ("cat", cat_transformer, cat_cols)
-])
-```
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", num_transformer, num_cols),
+        ("cat", cat_transformer, cat_cols)
+    ],
+    remainder="drop"
+)
 
-## 4) Modelo: Logistic Regression (Pipeline) y entrenamiento
-
-```{python}
-from sklearn.linear_model import LogisticRegression
-
-# Modelo base (ajustable)
 logreg = LogisticRegression(max_iter=1000, solver="lbfgs")
 
 model = Pipeline(steps=[
@@ -148,19 +163,21 @@ y_pred = model.predict(X_test)
 # definir clase positiva como la "mayor" por orden (ajústalo si prefieres otra)
 pos_label = sorted(y_test.unique())[-1]
 
-acc = accuracy_score(y_test, y_pred)
+acc  = accuracy_score(y_test, y_pred)
 prec = precision_score(y_test, y_pred, pos_label=pos_label)
-rec = recall_score(y_test, y_pred, pos_label=pos_label)
-f1 = f1_score(y_test, y_pred, pos_label=pos_label)
+rec  = recall_score(y_test, y_pred, pos_label=pos_label)
+f1   = f1_score(y_test, y_pred, pos_label=pos_label)
 
-acc, prec, rec, f1
-```
+print("Accuracy :", acc)
+print("Precision:", prec)
+print("Recall   :", rec)
+print("F1       :", f1)
 
-```{python}
+print("\nClassification Report:\n")
 print(classification_report(y_test, y_pred))
 ```
 
-## 6) Matriz de confusión (visualización)
+## 6) Matriz de confusión
 
 ```{python}
 from sklearn.metrics import confusion_matrix
@@ -170,48 +187,46 @@ import matplotlib.pyplot as plt
 labels = sorted(y_test.unique())
 cm = confusion_matrix(y_test, y_pred, labels=labels)
 
-fig, ax = plt.subplots(figsize=(4.5,4))
+fig, ax = plt.subplots()
 im = ax.imshow(cm, cmap="Blues")
 ax.set_title("Matriz de confusión")
-ax.set_xlabel("Predicha")
-ax.set_ylabel("Real")
-ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels, rotation=0)
+ax.set_xlabel("Predicha"); ax.set_ylabel("Real")
+ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels)
 ax.set_yticks(range(len(labels))); ax.set_yticklabels(labels)
 for i in range(cm.shape[0]):
     for j in range(cm.shape[1]):
         ax.text(j, i, cm[i, j], ha="center", va="center")
 fig.colorbar(im)
-plt.tight_layout()
-plt.show()
+plt.tight_layout(); plt.show()
 ```
 
 ## 7) Curva ROC y AUC
 
 ```{python}
 from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
 
-pos_label = sorted(y_train.unique())[-1]
-y_proba = model.predict_proba(X_test)[:, list(model.classes_).index(pos_label)]
+if len(labels) == 2:
+    pos_label = sorted(y_train.unique())[-1]
+    y_proba = model.predict_proba(X_test)[:, list(model.classes_).index(pos_label)]
 
-fpr, tpr, thr = roc_curve(y_test, y_proba, pos_label=pos_label)
-roc_auc = auc(fpr, tpr)
+    fpr, tpr, thr = roc_curve(y_test, y_proba, pos_label=pos_label)
+    roc_auc = auc(fpr, tpr)
 
-plt.figure(figsize=(5,4))
-plt.plot(fpr, tpr, label=f"ROC (AUC = {roc_auc:.3f})")
-plt.plot([0,1],[0,1], "--", alpha=0.6)
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("Curva ROC")
-plt.legend()
-plt.tight_layout()
-plt.show()
+    plt.figure()
+    plt.plot(fpr, tpr, label=f"ROC (AUC = {roc_auc:.3f})")
+    plt.plot([0,1],[0,1], "--")
+    plt.xlabel("False Positive Rate"); plt.ylabel("True Positive Rate")
+    plt.title("Curva ROC"); plt.legend()
+    plt.tight_layout(); plt.show()
 
-roc_auc
+    print("AUC:", roc_auc)
+else:
+    print("ROC/AUC solo aplica a problemas estrictamente binarios (2 clases).")
 ```
 
-## 8) Discusión de resultados
+## 8) Comentarios finales
 
-- **Accuracy / Precision / Recall / F1**: interpreta cada métrica según el costo de errores.
-- **Matriz de confusión**: identifica dónde se equivoca más el modelo.
-- **ROC/AUC**: valores cercanos a 1 indican mejor discriminación; ~0.5 es aleatorio.
-- Si el desempeño es bajo: prueba `class_weight='balanced'`, regularización (ajustar `C`), ingeniería de variables o modelos alternativos (árboles, ensambles).
+- **Normalización de tipos**: convertir texto numérico a número y forzar categóricas a string evita el error `['float','str']` en `OneHotEncoder`.
+- **Pipeline** asegura reproducibilidad (imputación/escalado/one-hot + modelo).
+- Si las métricas no son satisfactorias: prueba `class_weight='balanced'`, ajustar `C` en `LogisticRegression`, selección/ingeniería de features o modelos alternativos.
