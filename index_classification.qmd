@@ -13,8 +13,20 @@ execute:
 
 ```{python}
 import pandas as pd
-df_1 = pd.read_csv("data/ensanut_f1_informacion_general.csv", encoding="latin1")
+
+path = "data/ensanut_f1_informacion_general.csv"
+
+df = pd.read_csv(
+    path,
+    sep=None,                # autodetecta delimitador
+    engine="python",         # necesario para sep=None
+    encoding="latin1",       # o "utf-8"/"cp1252" si aplica
+    on_bad_lines="skip",     # si hay filas mal formadas, sáltalas
+    skipinitialspace=True    # ignora espacios después del separador
+)
+
 df.head()
+
 ```
 
 ```{python}

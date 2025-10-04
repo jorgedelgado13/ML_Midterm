@@ -2,20 +2,30 @@ project:
   type: website
   output-dir: docs
   resources:
-    - data/*
+    - data/*          # copia tus CSV a docs/data/ al renderizar
 
 website:
   title: "EDA + Regresión Exportaciones EEUU (2024-01)"
+  site-url: "https://jorgedelgado13.github.io/midterm/"   # <-- ajusta a tu repo
   navbar:
     left:
       - href: index.qmd
         text: Inicio
+      - href: index_clasificacion.qmd         # <-- tu nueva página
+        text: Clasificación
+    right:
+      - text: Datos
+        menu:
+          - href: data/ensanut_f1_informacion_general.csv
+            text: ENSANUT (CSV)
 
 format:
   html:
     toc: true
+    code-copy: true        # botón copiar código (opcional)
+    page-layout: full      # layout ancho (opcional)
 
-#execute:
-#  warning: false
-#  message: false
-#  freeze: auto
+execute:
+  warning: false
+  message: false
+  freeze: auto
