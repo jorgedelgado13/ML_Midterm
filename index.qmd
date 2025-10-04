@@ -118,3 +118,6 @@ plt.show()
 - Reporta **MSE** y **R²** y compáralos con la escala del objetivo.
 - Observa si hay **sobreajuste** en la curva de aprendizaje.
 - Si el desempeño no es suficiente, prueba **regularización** (Ridge/Lasso), **transformaciones** (log del objetivo), o **nuevas variables** (interacciones, efectos de mes/año).
+
+
+
