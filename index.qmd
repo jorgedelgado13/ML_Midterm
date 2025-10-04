@@ -1,5 +1,5 @@
 ---
-title: "PRIMER REPORTE EN QUARTO"
+title: "Midterm"
 author: "Jorge Delgado" 
 date: "2025-10-04"
 # format:
@@ -22,7 +22,7 @@ df.head()
 
 ```{python}
 df.info()
-df.describe(include="all", datetime_is_numeric=True)
+df.describe()
 ```
 
 # División Train/Test y Pipeline
@@ -58,7 +58,7 @@ num_transformer = Pipeline(steps=[
 
 cat_transformer = Pipeline(steps=[
     ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse=False, max_categories=50))
+    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False, max_categories=50))
 ])
 
 preprocessor = ColumnTransformer(
